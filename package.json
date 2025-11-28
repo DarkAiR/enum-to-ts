@@ -1,0 +1,66 @@
+{
+  "name": "@darkair/enum-to-ts",
+  "version": "0.6.1",
+  "description": "Convert enums from any programming language (ex. Java) into TypeScript enum declarations",
+  "keywords": [
+    "typescript",
+    "enum",
+    "codegen",
+    "generator",
+    "parser",
+    "developer-tools",
+    "typesafe"
+  ],
+  "author": "Dmitry 'DarkAiR' Romanov (https://darkair.github.io)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DarkAiR/enum-to-ts.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc",
+    "verify": "npm run typecheck && npm run test && npm run build",
+    "prepublishOnly": "npm run verify"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "rimraf": "^6.0.1",
+    "tsup": "^8.3.6",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.2"
+  },
+  "engines": {
+    "node": "^20.0.0 || >=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "colorize-node": "^1.0.1"
+  }
+}
