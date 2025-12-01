@@ -1,6 +1,6 @@
 {
   "name": "@darkair/enum-to-ts",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Convert enums from any programming language (ex. Java) into TypeScript enum declarations",
   "keywords": [
     "typescript",

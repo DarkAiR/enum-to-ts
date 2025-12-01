@@ -9,7 +9,7 @@ class ParserContent {
  * This file is generated automatically
  * Any changes will be overwritten
  */
- 
+
 ${commentContent}
 
 export enum ${enumName} {
