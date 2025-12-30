@@ -5,14 +5,14 @@ class ParserIO {
     /**
      * Recursively find the path to a file in a specified directory
      */
-    static async findFilePath(parseFileName: string, srcPath: string): Promise<string | null> {
+    static async findFilePath(srcFileName: string, srcPath: string): Promise<string | null> {
         if (!srcPath) {
             throw new Error(`Doesn't specify the source directory ${srcPath}`);
         }
         try {
             const dirEntries = await readdir(path.resolve(srcPath), {withFileTypes: true});
             const files = dirEntries.filter(de => de.isFile());
-            const fileIndex = files.findIndex(de => de.name === parseFileName);
+            const fileIndex = files.findIndex(de => de.name === srcFileName);
             if (fileIndex !== -1) {
                 return path.join(srcPath, files[fileIndex].name);
             }
@@ -21,7 +21,7 @@ class ParserIO {
 
             let foundFilePath: string | null = null;
             for (const de of dirs) {
-                foundFilePath = await ParserIO.findFilePath(parseFileName, path.join(srcPath, de.name));
+                foundFilePath = await ParserIO.findFilePath(srcFileName, path.join(srcPath, de.name));
                 if (foundFilePath !== null) {
                     return foundFilePath;
                 }

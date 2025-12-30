@@ -17,41 +17,23 @@ The examples below are for a case where the backend is written in Java, and the 
 ```ts
 import {ParseInfo, Parser} from "@darkair/enum-to-ts";
 
-// Regular expression to parse Java enums like
-// ID_ASC(Sort.by(Sort.Direction.ASC, "id")),
-const regExp: RegExp = /^\s*(\w+)\(\s*Sort\.by\(\s*Sort\.Direction\.(ASC|DESC),\s*/;
-
 const parseInfos: ParseInfo[] = [
     {
-        parseFileName: 'FirstSort.java',        // Java file name
-        enumName: 'Sort1Enum',                  // TS file name (without extension)
-        regExp,                                 // RegExp to parse Java file
-    },
-    {
-        parseFileName: 'SecondSort.java',
-        enumName: 'Sort2Enum',
-        regExp,
+        srcFileName: 'SomeType.java',                               // File to parsing
+        srcDirectory: "../src/main/java/path/to/head/directory",    // relative path to start folder to recursive find of the source file
+        enumName: 'SomeTypeEnum',                                   // TS file name (without extension)
+        comment: 'This is a some type',                             // Comment for the enum
+        parseFunc: Parser.parseNameValue                            // NAME(VALUE, ...) -> [1: NAME, 2: VALUE]
     }
 ];
 
 async function generateEnum(): Promise<boolean> {
     try {
-        // Parse of enums by config
         await Parser.parseEnums(
             parseInfos,
-            "../src/main/java/path/to/head/directory",  // relative path to start folder to recursive find of the source file
-            `${__dirname}/../../src/enums/sort`,        // relative path to destination folder
+            `${__dirname}/../../src/enums`              // relative path to destination folder
         );
-
-        // Generate an index file if necessary
-        await Parser.generateIndex(
-            parseInfos,
-            [
-                'NotGeneratedSortEnum'                  // Array of extra enums not generated automatically
-            ],
-            `${__dirname}/../../src/enums/sort`,        // relative path to destination folder
-        );
-    } catch (err: Error) {
+    } catch (err) {
         // error handling
         return false;
     }
@@ -59,19 +41,18 @@ async function generateEnum(): Promise<boolean> {
 }
 ```
 
-### Extended example
+### Example with index.ts generation
 
 ```ts
-// Regular expression to parse Java enums like
-// VALUE("description", ...) => [VALUE, ("description", ...)] 
-const regExp: RegExp = /([A-Z0-9_]+)\((['"])(.*?)\2,/;
+import {ParseInfo, Parser} from "@darkair/enum-to-ts";
 
 const parseInfos: ParseInfo[] = [
     {
-        parseFileName: 'SomeEnum.java',         // Java file name
-        enumName: 'SomeEnum',                   // TS file name (without extension)
-        comment: 'This is some enums',          // Comment to put before TS enum
-        regExp,                                 // RegExp to parse Java file
+        srcFileName: 'SomeType.java',                               // File to parsing
+        srcDirectory: "../src/main/java/path/to/head/directory",    // relative path to start folder to recursive find of the source file
+        enumName: 'SomeTypeEnum',                                   // TS file name (without extension)
+        comment: 'This is a some type',                             // Comment for the enum
+        parseFunc: Parser.parseNameValue                            // NAME(VALUE, ...) -> [1: NAME, 2: VALUE]
     }
 ];
 
@@ -79,7 +60,47 @@ async function generateEnum(): Promise<boolean> {
     try {
         await Parser.parseEnums(
             parseInfos,
-            "../src/main/java/path/to/head/directory",  // relative path to start folder to recursive find of the source file
+            `${__dirname}/../../src/enums`              // relative path to destination folder
+        );
+
+        // Generate an index file if necessary
+        // Result "src/enums/index.ts":
+        //    export * from "SomeTypeEnum";
+        //    export * from "NotGeneratedEnum1";
+        //    export * from "NotGeneratedEnum2";
+        await Parser.generateIndex(
+            parseInfos,
+            [
+                'NotGeneratedEnum1',                    // Array of extra enums not generated automatically                  
+                'NotGeneratedEnum2'
+            ],
+            `${__dirname}/../../src/enums`,             // relative path to destination folder
+        );
+    } catch (err) {
+        // error handling
+        return false;
+    }
+    return true;
+}
+```
+
+### Example with custom enum generator
+
+```ts
+const parseInfos: ParseInfo[] = [
+    {
+        srcFileName: 'SomeEnum.java',                               // File to parsing
+        srcDirectory: "../src/main/java/path/to/head/directory",    // relative path to start folder to recursive find of the source file
+        enumName: 'SomeEnum',                                       // TS file name (without extension)
+        comment: 'This is some enums',                              // Comment to put before TS enum
+        parseFunc: Parser.parseNameComment                          // NAME("COMMENT", ...) -> [1: NAME, ..., 3: COMMENT]
+    }
+];
+
+async function generateEnum(): Promise<boolean> {
+    try {
+        await Parser.parseEnums(
+            parseInfos,
             `${__dirname}/../../src/enums`,             // relative path to destination folder
             getEnums                                    // custom function to parse enum
         );
@@ -94,32 +115,94 @@ async function generateEnum(): Promise<boolean> {
  * This custom function is generate enum with aligned comment for every values
  * Comments are parsed from the Java file by the main regular expression
  */
-async function getEnums(fileContent: string, regExp: RegExp): Promise<string> {
+async function getEnums(fileContent: string, parseFunc: ParseInfo['parseFunc']): Promise<string> {
     return new Promise(resolve => {
-        const readable: Readable = Readable.from(Parser.fs.splitByEOL(fileContent));
+        const readable: Readable = Readable.from(Parser.splitByEOL(fileContent));
 
         const lines: Array<string[]> = [];
         readable.on('data', (line: string) => {
-            if (regExp.test(line)) {
-                const regArr: RegExpExecArray = regExp.exec(line);
-                lines.push([`    ${regArr[1]} = '${regArr[1]}',`, regArr[3]]);      // regArr[3] - is a comment
+            const res: ParseResult = parseFunc(line);
+            if (res) {
+                lines.push([`    ${res.name} = '${res.value}',`, res.comment]);
             }
         });
 
         readable.on('close', async () => {
-            // Находим максимальную длину строки, чтобы выровнять комментарии
-            const maxLen: number = Math.max(...lines.map((v: string[]) => v[0].length));
+            // Align the comment
+            let maxLen: number = Math.max(...lines.map((v: string[]) => v[0].length));
+            maxLen = Math.ceil(maxLen / 4 + 1) * 4;     // +1 to extra spaces
             const spacesStr: string = ' '.repeat(maxLen);
             resolve(
                 // Aligning comments
                 lines.map(
-                    (v: string[]) => `${(v[0] + spacesStr).slice(0, maxLen)} // ${v[1]}`
-                ).join(EOL),
+                    (v: [string, string]) => `${(v[0] + spacesStr).slice(0, maxLen)}// ${v[1]}`
+                ).join(EOL)
             );
         });
     });
 }
 ```
+
+### Example: Enum + Description class
+
+```ts
+const parseInfos: ParseInfo[] = [
+    {
+        srcFileName: 'SomeEnum.java',                               // File to parsing
+        srcDirectory: "../src/main/java/path/to/head/directory",    // relative path to start folder to recursive find of the source file
+        enumName: 'SomeEnum',                                       // TS file name (without extension)
+        descriptionEnumName: 'SomeEnumDescription',                 // Name of the description class for the frontend (optional)
+        comment: 'This is some enums',                              // Comment to put before TS enum
+        parseFunc: Parser.parseNameValueComment                     // NAME(VALUE, "COMMENT", ...) -> [1: NAME, 2: VALUE, ..., 4: COMMENT]
+    }
+];
+
+/**
+ * Result:
+ *     export enum SomeEnum {
+ *         VALUE1 = "VALUE1",       // Value1 comment 
+ *         VALUE2 = "VALUE2",       // Value2 comment 
+ *     }
+ *     export enum SomeEnumDescription {
+ *         VALUE1 = "Value1 comment",
+ *         VALUE2 = "Value2 comment",
+ *     }
+ */
+async function generateEnum(): Promise<boolean> {
+    try {
+        await Parser.parseEnumsWithDescription(
+            parseInfos,
+            `${__dirname}/../../src/enums`
+        );
+    } catch (err) {
+        console.log(colorize.red(err.message));
+        return false;
+    }
+    return true;
+}
+```
+
+### Example of custom "parseFunc"
+
+```ts
+const parseInfos: ParseInfo[] = [
+    {
+        srcFileName: 'SomeEnum.java',                               // File to parsing
+        srcDirectory: "../src/main/java/path/to/head/directory",    // relative path to start folder to recursive find of the source file
+        enumName: 'SomeEnum',                                       // TS file name (without extension)
+        parseFunc: (line: string): ParseResult | null => {
+            const regExp: RegExp = /([A-Z0-9_]+)\((['"])(.*?)(?<!\\)\2, ([A-Z0-9_]+)\)/;      // NAME("COMMENT", VALUE)
+            const regArr: RegExpMatchArray = line.match(regExp);
+            return !regArr ? null : {
+                name: regArr[1],
+                value: regArr[4],
+                comment: regArr[3],
+            };
+        }
+    }
+];
+```
+
 
 ## Documentation
 
@@ -127,12 +210,12 @@ async function getEnums(fileContent: string, regExp: RegExp): Promise<string> {
 
 ```ts
 export interface ParseInfo {
-    parseFileName: string;                              // File to parsing
-    regExp: RegExp;                                     // Main regular expression
-    comment?: string;                                   // Comment to enum (optional)
+    srcFileName: string;                                // File to parsing
+    srcDirectory: string;                               // Base directory to find srcFileName
     enumName: string;                                   // Name of the main enum for the frontend
     descriptionEnumName?: string;                       // Name of the description class for the frontend (optional)
-    parseDescriptionFunc?: (src: string) => string[];   // Function for custom parsing if it needs (optional)
+    comment?: string;                                   // Comment for the enum (optional)
+    parseFunc: (line: string) => ParseResult | null;    // Function for parsing a line
 }
 ```
 
@@ -144,18 +227,16 @@ Parse files specified by the parseInfos.
 ```ts
 static async parseEnums(
     parseInfos: ParseInfo[],
-    srcPath: string,
     destPath: string,
-    getEnumsFunc?: typeof Parser.getEnums
+    getEnumsFunc?: typeof Parser.getEnums,
 );
 ```
 #### Options
-| Parameter | Description                                                                                  |
-|-------|----------------------------------------------------------------------------------------------|
-|parseInfos| config array of parsing files                                                                |
-|srcPath| relative path to start folder to recursive find of the source file                           |
-|destPath| relative path to destination folder                                                          |
-|getEnumsFunc| custom function for parse enum from the file<br/>`async getEnums(parsedFileContent, regExp)` |
+| Parameter    | Description                                                                                                               |
+|--------------|---------------------------------------------------------------------------------------------------------------------------|
+| parseInfos   | config array of parsing files                                                                                             |
+| destPath     | relative path to destination folder                                                                                       |
+| getEnumsFunc | custom function for parse enum from the file<br/>`async getEnums(fileContent: string, parseFunc: ParseInfo['parseFunc'])` |
 
 
 ### Parser.parseEnumsWithDescription
@@ -165,18 +246,81 @@ Parse files with descriptions of enums specified by the parseInfos.
 ```ts
 static async parseEnumsWithDescription(
     parseInfos: ParseInfo[],
-    srcPath: string,
     destPath: string,
     getEnumsFunc?: typeof Parser.getEnumsWithDescription,
 );
 ```
 #### Options
-| Parameter | Description                                                                                  |
-|-------|----------------------------------------------------------------------------------------------|
-|parseInfos| config array of parsing files                                                                |
-|srcPath| relative path to start folder to recursive find of the source file                           |
-|destPath| relative path to destination folder                                                          |
-|getEnumsFunc| custom function for parse enum from the file<br/>`async getEnums(parsedFileContent, regExp)` |
+| Parameter    | Description                                                                                                               |
+|--------------|---------------------------------------------------------------------------------------------------------------------------|
+| parseInfos   | config array of parsing files                                                                                             |
+| destPath     | relative path to destination folder                                                                                       |
+| getEnumsFunc | custom function for parse enum from the file<br/>`async getEnums(fileContent: string, parseFunc: ParseInfo['parseFunc'])` |
+
+
+### Parser.parseName
+
+Parse NAME -> [1: NAME]
+
+```ts
+static parseName(line: string): ParseResult | null;
+```
+#### Options
+| Parameter    | Description             |
+|--------------|-------------------------|
+| line         | single string from file |
+
+
+### Parser.parseNameValue
+
+Parse NAME(VALUE) -> [1: NAME, 2: VALUE]
+
+```ts
+static parseNameValue(line: string): ParseResult | null;
+```
+#### Options
+| Parameter    | Description             |
+|--------------|-------------------------|
+| line         | single string from file |
+
+
+### Parser.parseNameComment
+
+Parse NAME("COMMENT") -> [1: NAME, ..., 3: COMMENT]
+
+```ts
+static parseNameComment(line: string): ParseResult | null;
+```
+#### Options
+| Parameter    | Description             |
+|--------------|-------------------------|
+| line         | single string from file |
+
+
+### Parser.parseNameValueComment
+
+Parse NAME(VALUE, "COMMENT") -> [1: NAME, 2: VALUE, ..., 4: COMMENT]
+
+```ts
+static parseNameValueComment(line: string): ParseResult | null;
+```
+#### Options
+| Parameter    | Description             |
+|--------------|-------------------------|
+| line         | single string from file |
+
+
+### Parser.parseNameCommentValue
+
+Parse NAME("COMMENT", VALUE, ...) -> [1: NAME, 2: COMMENT, ..., 4: VALUE]
+
+```ts
+static parseNameCommentValue(line: string): ParseResult | null;
+```
+#### Options
+| Parameter    | Description             |
+|--------------|-------------------------|
+| line         | single string from file |
 
 
 ### Parser.generateIndex
@@ -191,11 +335,11 @@ static async generateIndex(
 );
 ```
 #### Options
-| Parameter | Description                                                                                  |
-|-------|----------------------------------------------------------------------------------------------|
-|parseInfos| config array of parsing files                                                                |
-|extraEnums| enumerations that are not generated but exist in the same folder                             |
-|destPath| relative path to destination folder                                                          |
+| Parameter  | Description                                                      |
+|------------|------------------------------------------------------------------|
+| parseInfos | config array of parsing files                                    |
+| extraEnums | enumerations that are not generated but exist in the same folder |
+| destPath   | relative path to destination folder                              |
 
 ### Parser.splitByEOL
 
@@ -222,12 +366,12 @@ static createFileContent(
 ```
 
 #### Options
-| Parameter | Description                                                                                        |
-|-------|----------------------------------------------------------------------------------------------------|
-|enumName| enum name                                                                                          |
-|enumContent| string with concatenated enum content like<br/>```VALUE1 = "VALUE1",```<br/>```VALUE2 = "VALUE2``` |
-|commentContent| correct multiline comment content like<br/>```/* comment */```                                     |
-|descriptionContent| full content of description enum<br/>```enum DescEnum { ... }```                                      |
+| Parameter          | Description                                                                                        |
+|--------------------|----------------------------------------------------------------------------------------------------|
+| enumName           | enum name                                                                                          |
+| enumContent        | string with concatenated enum content like<br/>```VALUE1 = "VALUE1",```<br/>```VALUE2 = "VALUE2``` |
+| commentContent     | correct multiline comment content like<br/>```/* comment */```                                     |
+| descriptionContent | full content of description enum<br/>```enum DescEnum { ... }```                                   |
 
 ### Parser.content.createCommentContent
 
@@ -256,7 +400,7 @@ Recursively find the path to a file in a specified directory
 
 ```ts
 static async findFilePath(
-    parseFileName: string,      // MyEnum.java
+    srcFileName: string,        // MyEnum.java
     srcPath: string             // relative path to source file
 ): Promise<string | null>;
 ```
@@ -323,15 +467,15 @@ A complete example of custom parsing and enumeration generation
 
 ```ts
 for (const info: ParseInfo of parseInfos) {
-    const foundFilePath = await Parser.fs.findFilePath(info.parseFileName, "../src/main/java/ru/my/path");
+    const foundFilePath = await Parser.fs.findFilePath(info.srcFileName, "../src/main/java/ru/my/path");
     if (!foundFilePath) {
-        throw new Error(`File ${info.parseFileName} is not found`);
+        throw new Error(`File ${info.srcFileName} is not found`);
     }
     const parsedFileContent: string = (await readFile(foundFilePath)).toString();
 
     const enums: [string, string] = await getMyEnums(
         parsedFileContent,
-        info.regExp
+        info.parseFunc
     );
     const enumContent: string = enums[0];               // 'VALUE1 = "VALUE1",\nVALUE2 = "VALUE2",'
     const descriptionEnumContent: string = enums[1];    // 'DESC1 = "desc 1",\nDESC2 = "desc 2",'
